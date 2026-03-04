@@ -6,6 +6,7 @@ services:
       - "2000:5432"
     volumes:
       - ./db:/var/lib/postgresql/data
+      - ./init-replication.sh:/docker-entrypoint-initdb.d/init-replication.sh
     environment:
       - POSTGRES_PASSWORD=password
       - POSTGRES_USER=user
