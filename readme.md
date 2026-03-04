@@ -1,201 +1,117 @@
-# Database Setup dengan Docker
+Ini adalah draft dokumentasi profesional dalam format Markdown (`.md`) untuk repositori kamu. Dokumentasi ini dirancang dengan standar industri agar siapa pun (termasuk interviewer kamu) bisa melihat betapa rapinya cara kamu bekerja.
 
-Dokumentasi ini menjelaskan cara menjalankan database menggunakan Docker beserta konfigurasi replikanya.
-
----
-
-## Prasyarat
-
-- [Docker](https://docs.docker.com/get-docker/) versi 20+
-- [Docker Compose](https://docs.docker.com/compose/install/) versi 2+
+Kamu bisa menyimpan file ini dengan nama `README.md` di root folder proyek kamu.
 
 ---
 
-## Struktur
+````markdown
+# PostgreSQL Streaming Replication (Primary-Replica) with Docker
 
-```
-.
-├── docker-compose.yml        # Konfigurasi utama Docker Compose
-├── docker-compose.replica.yml # Konfigurasi tambahan untuk replica
-├── .env                      # Environment variables
-└── init/
-    └── init.sql              # Script inisialisasi database (opsional)
-```
+Repositori ini berisi implementasi **PostgreSQL 14 High Availability** menggunakan arsitektur _Physical Streaming Replication_ (Asynchronous). Proyek ini dirancang untuk mensimulasikan lingkungan produksi di mana beban baca (_Read_) dipisahkan dari beban tulis (_Write_).
+
+## 🏗️ Arsitektur Sistem
+
+- **Primary (db_main):** Bertugas menangani semua transaksi tulis (INSERT, UPDATE, DELETE). Mencatat perubahan ke dalam Write Ahead Log (WAL).
+- **Replica (db_replica):** Bertugas menangani beban baca (SELECT). Melakukan sinkronisasi data secara real-time dari Primary.
 
 ---
 
-## Menjalankan Database
+## 🚀 Cara Menjalankan
 
-### 1. Salin file environment
+### 1. Persiapan
+
+Pastikan folder data database dalam keadaan bersih (jika ini instalasi baru):
 
 ```bash
-cp .env.example .env
+rm -rf ./db ./db_replica_data
 ```
+````
 
-Sesuaikan variabel berikut di file `.env`:
+### 2. Jalankan Container
 
-```env
-POSTGRES_USER=your_user
-POSTGRES_PASSWORD=your_password
-POSTGRES_DB=your_database
-
-# Replica
-REPLICA_USER=replica_user
-REPLICA_PASSWORD=replica_password
-```
-
-### 2. Jalankan database utama (Primary)
+Gunakan Docker Compose untuk membangun seluruh infrastruktur:
 
 ```bash
-docker compose up -d db
+docker-compose up -d
+
 ```
 
-### 3. Jalankan beserta replica
+### 3. Otomatisasi Inisialisasi
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.replica.yml up -d
-```
+Sistem menggunakan script `init-replication.sh` yang secara otomatis:
+
+1. Membuat `replica_user` dengan izin khusus replikasi.
+2. Mendaftarkan alamat IP Replica ke dalam `pg_hba.conf` (Host-Based Authentication).
+3. Melakukan `pg_basebackup` pada container Replica saat pertama kali dijalankan.
 
 ---
 
-## Konfigurasi docker-compose.yml
+## 📊 Monitoring Replikasi
 
-```yaml
-services:
-  db:
-    image: postgres:16
-    container_name: db_primary
-    restart: always
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "5432:5432"
-    volumes:
-      - db_primary_data:/var/lib/postgresql/data
-      - ./init:/docker-entrypoint-initdb.d
-    command: >
-      postgres
-        -c wal_level=replica
-        -c max_wal_senders=10
-        -c wal_keep_size=512
+Gunakan query berikut untuk memastikan status replikasi berjalan dengan baik:
 
-volumes:
-  db_primary_data:
-```
+### Di Sisi Primary
 
----
-
-## Konfigurasi Replica (docker-compose.replica.yml)
-
-```yaml
-services:
-  db_replica:
-    image: postgres:16
-    container_name: db_replica
-    restart: always
-    environment:
-      PGUSER: ${REPLICA_USER}
-      PGPASSWORD: ${REPLICA_PASSWORD}
-    ports:
-      - "5433:5432"
-    volumes:
-      - db_replica_data:/var/lib/postgresql/data
-    depends_on:
-      - db
-    command: >
-      bash -c "
-        until pg_basebackup -h db -D /var/lib/postgresql/data -U ${REPLICA_USER} -Fp -Xs -R -P; do
-          echo 'Menunggu primary siap...';
-          sleep 2;
-        done
-      "
-
-volumes:
-  db_replica_data:
-```
-
-> **Catatan:** Replica berjalan dalam mode _standby_ (read-only). Semua write tetap dilakukan ke primary.
-
----
-
-## Menghubungkan Aplikasi
-
-| Koneksi | Host        | Port   | Keterangan   |
-| ------- | ----------- | ------ | ------------ |
-| Primary | `localhost` | `5432` | Read & Write |
-| Replica | `localhost` | `5433` | Read only    |
-
-Contoh connection string:
-
-```
-# Primary
-postgresql://your_user:your_password@localhost:5432/your_database
-
-# Replica
-postgresql://your_user:your_password@localhost:5433/your_database
-```
-
----
-
-## Perintah Umum
-
-```bash
-# Lihat status container
-docker compose ps
-
-# Lihat log primary
-docker compose logs -f db
-
-# Lihat log replica
-docker compose logs -f db_replica
-
-# Stop semua container
-docker compose down
-
-# Stop dan hapus volume (reset data)
-docker compose down -v
-```
-
----
-
-## Cek Status Replikasi
-
-Masuk ke container primary dan jalankan query berikut:
-
-```bash
-docker exec -it db_primary psql -U your_user -d your_database
-```
+Jalankan di container `db_main` untuk melihat status streaming:
 
 ```sql
-SELECT client_addr, state, sent_lsn, write_lsn, flush_lsn, replay_lsn
+SELECT
+    application_name,
+    state,
+    sent_lsn,
+    write_lsn,
+    flush_lsn
 FROM pg_stat_replication;
+
 ```
 
-Jika replica terhubung dengan benar, akan muncul satu baris dengan `state = streaming`.
+_Pastikan `state` bernilai `streaming`._
+
+### Di Sisi Replica
+
+Cek jeda waktu (_replication lag_) terhadap data asli:
+
+```sql
+SELECT now() - pg_last_xact_replay_timestamp() AS replication_lag;
+
+```
 
 ---
 
-## Troubleshooting
+## 🛠️ Troubleshoot & DBA Knowledge
 
-**Replica tidak bisa terhubung ke primary**
+### Konfigurasi Penting (Primary)
 
-- Pastikan `wal_level=replica` sudah di-set di primary.
-- Cek apakah user replica punya hak `REPLICATION`:
-  ```sql
-  CREATE USER replica_user REPLICATION LOGIN ENCRYPTED PASSWORD 'replica_password';
-  ```
+- `wal_level = replica`: Memastikan log cukup detail untuk replikasi.
+- `max_wal_senders`: Jumlah maksimum koneksi dari replica.
+- `hot_standby = on`: Memungkinkan replica menerima query baca meskipun dalam mode recovery.
 
-**Port konflik**
+### Mekanisme Failover (Manual)
 
-- Ganti port di `docker-compose.yml` jika `5432` atau `5433` sudah dipakai proses lain.
+Jika Primary mati, promosikan Replica menjadi Primary baru dengan perintah:
 
-**Data replica tidak sinkron**
+```bash
+docker exec -it db_replica pg_ctl promote
 
-- Stop replica, hapus volume-nya, lalu jalankan ulang agar `pg_basebackup` berjalan dari awal:
-  ```bash
-  docker compose stop db_replica
-  docker volume rm <nama_volume_replica>
-  docker compose up -d db_replica
-  ```
+```
+
+---
+
+## 👨‍💻 Tech Stack
+
+- **Database:** PostgreSQL 14
+- **Orchestration:** Docker Compose
+- **Scripting:** Bash (Auto-provisioning)
+
+---
+
+```
+
+### Tips Tambahan buat Kamu:
+Kalau kamu mau upload ke GitHub, pastikan file `init-replication.sh` tadi juga di-upload dan diberi izin eksekusi (`chmod +x init-replication.sh`).
+
+Dokumentasi ini menunjukkan kalau kamu bukan cuma "bisa bikin jalan", tapi kamu paham **apa** yang kamu bikin. Ini nilai plus banget buat posisi DBA atau Backend Engineer.
+
+**Apakah ada bagian teknis lain yang ingin kamu tambahkan ke dokumentasinya? Mungkin bagian cara koneksi dari C#?**
+
+```
