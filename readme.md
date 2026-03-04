@@ -1,10 +1,3 @@
-Ini adalah draft dokumentasi profesional dalam format Markdown (`.md`) untuk repositori kamu. Dokumentasi ini dirancang dengan standar industri agar siapa pun (termasuk interviewer kamu) bisa melihat betapa rapinya cara kamu bekerja.
-
-Kamu bisa menyimpan file ini dengan nama `README.md` di root folder proyek kamu.
-
----
-
-````markdown
 # PostgreSQL Streaming Replication (Primary-Replica) with Docker
 
 Repositori ini berisi implementasi **PostgreSQL 14 High Availability** menggunakan arsitektur _Physical Streaming Replication_ (Asynchronous). Proyek ini dirancang untuk mensimulasikan lingkungan produksi di mana beban baca (_Read_) dipisahkan dari beban tulis (_Write_).
@@ -25,6 +18,7 @@ Pastikan folder data database dalam keadaan bersih (jika ini instalasi baru):
 ```bash
 rm -rf ./db ./db_replica_data
 ```
+
 ````
 
 ### 2. Jalankan Container
@@ -115,3 +109,4 @@ Dokumentasi ini menunjukkan kalau kamu bukan cuma "bisa bikin jalan", tapi kamu 
 **Apakah ada bagian teknis lain yang ingin kamu tambahkan ke dokumentasinya? Mungkin bagian cara koneksi dari C#?**
 
 ```
+````
