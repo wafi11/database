@@ -1,0 +1,46 @@
+services:
+  db_main:
+    image: postgres:14
+    container_name: db_main
+    ports:
+      - "2000:5432"
+    volumes:
+      - ./db:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_USER=user
+      - POSTGRES_DB=musics
+    command: |
+      postgres
+      -c wal_level=replica 
+      -c max_wal_senders=10 
+      -c max_replication_slots=10
+      -c hot_standby=on
+    networks:
+      - postgres-db
+
+  db_replica:
+    image: postgres:14
+    container_name: db_replica
+    ports:
+      - "2001:5432"
+    depends_on:
+      - db_main
+    environment:
+      - PGPASSWORD=rahasia
+      - POSTGRES_PASSWORD=rahasia
+      - POSTGRES_USER=user
+      - POSTGRES_DB=musics
+    entrypoint: |
+      bash -c "
+      if [ ! -s /var/lib/postgresql/data/PG_VERSION ]; then
+        pg_basebackup -h db_main -D /var/lib/postgresql/data -U replica_user -vP -R
+      fi
+      exec docker-entrypoint.sh postgres
+      "
+    networks:
+      - postgres-db
+
+networks:
+  postgres-db:
+    driver: bridge
