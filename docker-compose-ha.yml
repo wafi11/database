@@ -1,0 +1,142 @@
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.9
+    container_name: etcd
+    hostname: etcd
+    environment:
+      ETCD_NAME: etcd
+      ETCD_DATA_DIR: /etcd-data
+      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+      ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd:2380
+      ETCD_INITIAL_CLUSTER: etcd=http://etcd:2380
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_INITIAL_CLUSTER_TOKEN: pg-ha-cluster
+      ALLOW_NONE_AUTHENTICATION: "yes"
+    volumes:
+      - ./etcd-data:/etcd-data
+    networks:
+      - pg-ha-network
+    healthcheck:
+      test: [ "CMD", "etcdctl", "--endpoints=http://localhost:2379", "endpoint", "health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pg-node-1:
+    build:
+      context: ./patroni
+      dockerfile: Dockerfile
+    image: pg-patroni:14
+    container_name: pg-node-1
+    hostname: pg-node-1
+    environment:
+      PATRONI_NAME: pg-node-1
+      PATRONI_SCOPE: pg-ha-cluster
+      PATRONI_ETCD3_HOSTS: "etcd:2379"
+      PATRONI_RESTAPI_LISTEN: "0.0.0.0:8008"
+      PATRONI_RESTAPI_CONNECT_ADDRESS: "pg-node-1:8008"
+      PATRONI_POSTGRESQL_LISTEN: "0.0.0.0:5432"
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: "pg-node-1:5432"
+      PATRONI_POSTGRESQL_DATA_DIR: /data/patroni
+      PATRONI_SUPERUSER_USERNAME: postgres
+      PATRONI_SUPERUSER_PASSWORD: postgres_pass
+      PATRONI_REPLICATION_USERNAME: replicator
+      PATRONI_REPLICATION_PASSWORD: replicator_pass
+    volumes:
+      - ./pg-node-1-data:/data/patroni
+      - ./patroni/patroni1.yml:/etc/patroni/patroni.yml
+    ports:
+      - "15432:5432"
+      - "18008:8008"
+    networks:
+      - pg-ha-network
+    depends_on:
+      etcd:
+        condition: service_healthy
+
+  pg-node-2:
+    build:
+      context: ./patroni
+      dockerfile: Dockerfile
+    image: pg-patroni:14
+    container_name: pg-node-2
+    hostname: pg-node-2
+    environment:
+      PATRONI_NAME: pg-node-2
+      PATRONI_SCOPE: pg-ha-cluster
+      PATRONI_ETCD3_HOSTS: "etcd:2379"
+      PATRONI_RESTAPI_LISTEN: "0.0.0.0:8008"
+      PATRONI_RESTAPI_CONNECT_ADDRESS: "pg-node-2:8008"
+      PATRONI_POSTGRESQL_LISTEN: "0.0.0.0:5432"
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: "pg-node-2:5432"
+      PATRONI_POSTGRESQL_DATA_DIR: /data/patroni
+      PATRONI_SUPERUSER_USERNAME: postgres
+      PATRONI_SUPERUSER_PASSWORD: postgres_pass
+      PATRONI_REPLICATION_USERNAME: replicator
+      PATRONI_REPLICATION_PASSWORD: replicator_pass
+    volumes:
+      - ./pg-node-2-data:/data/patroni
+      - ./patroni/patroni2.yml:/etc/patroni/patroni.yml
+    ports:
+      - "15433:5432"
+      - "18009:8008"
+    networks:
+      - pg-ha-network
+    depends_on:
+      etcd:
+        condition: service_healthy
+
+  pg-node-3:
+    build:
+      context: ./patroni
+      dockerfile: Dockerfile
+    image: pg-patroni:14
+    container_name: pg-node-3
+    hostname: pg-node-3
+    environment:
+      PATRONI_NAME: pg-node-3
+      PATRONI_SCOPE: pg-ha-cluster
+      PATRONI_ETCD3_HOSTS: "etcd:2379"
+      PATRONI_RESTAPI_LISTEN: "0.0.0.0:8008"
+      PATRONI_RESTAPI_CONNECT_ADDRESS: "pg-node-3:8008"
+      PATRONI_POSTGRESQL_LISTEN: "0.0.0.0:5432"
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: "pg-node-3:5432"
+      PATRONI_POSTGRESQL_DATA_DIR: /data/patroni
+      PATRONI_SUPERUSER_USERNAME: postgres
+      PATRONI_SUPERUSER_PASSWORD: postgres_pass
+      PATRONI_REPLICATION_USERNAME: replicator
+      PATRONI_REPLICATION_PASSWORD: replicator_pass
+    volumes:
+      - ./pg-node-3-data:/data/patroni
+      - ./patroni/patroni3.yml:/etc/patroni/patroni.yml
+    ports:
+      - "5434:5432"
+      - "8010:8008"
+    networks:
+      - pg-ha-network
+    depends_on:
+      etcd:
+        condition: service_healthy
+
+  haproxy:
+    image: haproxy:2.9
+    container_name: haproxy
+    hostname: haproxy
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports:
+      - "15000:5000"
+      - "15001:5001"
+      - "17000:7000"
+    networks:
+      - pg-ha-network
+    depends_on:
+      - pg-node-1
+      - pg-node-2
+      - pg-node-3
+
+networks:
+  pg-ha-network:
+    driver: bridge

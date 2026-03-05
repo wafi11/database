@@ -1,11 +1,11 @@
 services:
-  db_main:
+  db_replica:
     image: postgres:14
-    container_name: db_main
+    container_name: db_replica
     ports:
-      - "2000:5432"
+      - "2001:5432"
     volumes:
-      - ./db:/var/lib/postgresql/data
+      - ./db_replica_data:/var/lib/postgresql/data
       - ./init-replication.sh:/docker-entrypoint-initdb.d/init-replication.sh
     environment:
       - POSTGRES_PASSWORD=password
@@ -20,22 +20,29 @@ services:
     networks:
       - postgres-db
 
-  db_replica:
+  db_main:
     image: postgres:14
-    container_name: db_replica
+    container_name: db_main
     ports:
-      - "2001:5432"
-    depends_on:
-      - db_main
+      - "2000:5432"
+    volumes:
+      - ./db_main_data:/var/lib/postgresql/data
     environment:
       - PGPASSWORD=rahasia
       - POSTGRES_PASSWORD=rahasia
       - POSTGRES_USER=user
       - POSTGRES_DB=musics
+    depends_on:
+      - db_replica
     entrypoint: |
       bash -c "
       if [ ! -s /var/lib/postgresql/data/PG_VERSION ]; then
-        pg_basebackup -h db_main -D /var/lib/postgresql/data -U replica_user -vP -R
+        echo 'Waiting for db_replica to be ready...'
+        until pg_isready -h db_replica -p 5432 -U user; do
+          sleep 1
+        done
+        echo 'Targeting NEW Primary: db_replica...'
+        pg_basebackup -h db_replica -D /var/lib/postgresql/data -U replica_user -vP -R
       fi
       exec docker-entrypoint.sh postgres
       "

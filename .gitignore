@@ -1,1 +1,4 @@
 db/*
+pg-*
+golang-ha/*
+etcd-data/*
