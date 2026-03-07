@@ -1,4 +1,6 @@
 db/*
 pg-*
-golang-ha/*
 etcd-data/*
+application/high-avaibility/tmp
+application/documentation/
+application/rest-api

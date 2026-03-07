@@ -93,7 +93,7 @@ services:
       context: ./patroni
       dockerfile: Dockerfile
     image: pg-patroni:14
-    container_name: pg-node-3
+    container_name: pg-node-3sudo -u postgres /usr/local/bin/patroni /etc/patroni.yml
     hostname: pg-node-3
     environment:
       PATRONI_NAME: pg-node-3

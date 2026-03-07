@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wafi HA Docs — Postgres High Availability</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700;800&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+    <!-- ══ TOP BAR ══════════════════════════════════ -->
+    <nav class="topbar">
+        <div class="topbar-left">
+            <div class="logo">
+                <div class="logo-mark">W</div>
+                wafi-ha-docs
+            </div>
+            <nav class="topbar-nav">
+                <a href="#overview">Overview</a>
+                <a href="#etcd">Etcd</a>
+                <a href="#patroni">Patroni</a>
+                <a href="#failover">Failover</a>
+            </nav>
+        </div>
+        <div class="topbar-version">
+            <span class="dot-live">cluster online</span>
+            &nbsp;·&nbsp; v1.0.0
+        </div>
+    </nav>
+
+
+    <!-- ══ HERO ════════════════════════════════════ -->
+    <section class="hero" id="overview">
+        <p class="hero-eyebrow">Infrastructure Documentation</p>
+        <h1 class="hero-title">
+            <span class="accent">Postgres</span><br>
+            <span class="sub">High Availability</span>
+        </h1>
+        <div class="hero-rule"></div>
+        <p class="hero-desc">
+            Infrastruktur database replication menggunakan <strong>Patroni</strong>, <strong>Etcd</strong>,
+            dan <strong>Rocky Linux</strong>. Dirancang untuk ketahanan data&nbsp;24/7 dengan automatic failover
+            dan cluster discovery yang selalu aktif.
+        </p>
+        <div class="hero-stack">
+            <span class="stack-badge" data-lang="runtime">PostgreSQL 15</span>
+            <span class="stack-badge" data-lang="manager">Patroni 3.x</span>
+            <span class="stack-badge" data-lang="store">Etcd v3</span>
+            <span class="stack-badge" data-lang="os">Rocky Linux 9</span>
+            <span class="stack-badge" data-lang="api">Go + Fiber</span>
+        </div>
+    </section>
+
+
+    <!-- ══ STATUS CELLS ═════════════════════════════ -->
+    <div class="status-wrapper">
+        <div class="status-row">
+            <div class="stat-cell">
+                <div class="stat-label">Current Leader</div>
+                <div class="stat-value amber">{{ .leader_name }}</div>
+                <div class="stat-sub">patroni primary</div>
+            </div>
+            <div class="stat-cell">
+                <div class="stat-label">Primary IP</div>
+                <div class="stat-value cyan">{{ .primary }}</div>
+                <div class="stat-sub">:5432 postgres</div>
+            </div>
+            <div class="stat-cell">
+                <div class="stat-label">Etcd Endpoint</div>
+                <div class="stat-value">192.168.1.15</div>
+                <div class="stat-sub">:2379 client</div>
+            </div>
+            <div class="stat-cell">
+                <div class="stat-label">Cluster Status</div>
+                <div class="stat-value green">running</div>
+                <div class="stat-sub">all nodes healthy</div>
+            </div>
+            <div class="stat-cell">
+                <div class="stat-label">Replication</div>
+                <div class="stat-value">streaming</div>
+                <div class="stat-sub">sync mode</div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ══ MAIN ══════════════════════════════════════ -->
+    <div class="main-layout">
+
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-group">
+                <div class="sidebar-heading">Setup</div>
+                <ul class="sidebar-links">
+                    <li><a href="#etcd" class="active"><span class="num">01</span> Etcd Layer</a></li>
+                    <li><a href="#patroni"><span class="num">02</span> Patroni Config</a></li>
+                    <li><a href="#failover"><span class="num">03</span> Failover Logic</a></li>
+                </ul>
+            </div>
+            <div class="sidebar-group">
+                <div class="sidebar-heading">Reference</div>
+                <ul class="sidebar-links">
+                    <li><a href="#topology"><span class="num">—</span> Topology</a></li>
+                    <li><a href="#debug"><span class="num">—</span> Debug Trace</a></li>
+                </ul>
+            </div>
+            <div class="sidebar-ascii">
+                ─────────────<br>
+                Built with Go<br>
+                &amp; Fiber<br>
+                ─────────────<br>
+                Wafi Dev 2026<br>
+                ─────────────
+            </div>
+        </aside>
+
+        <!-- Content -->
+        <main class="content">
+
+            <!-- ── SECTION 01: ETCD ── -->
+            <section class="doc-section" id="etcd">
+                <div class="section-header">
+                    <span class="section-num">01</span>
+                    <div>
+                        <h2 class="section-title">Setup Etcd <span class="dim">/ Discovery Layer</span></h2>
+                    </div>
+                </div>
+
+                <p class="section-body">
+                    Etcd bertindak sebagai <strong>distributed consensus store</strong> untuk seluruh cluster.
+                    Semua node Patroni akan melaporkan status, leader election, dan konfigurasi DCS ke
+                    endpoint <code>192.168.1.15:2379</code>. Pastikan service ini running sebelum menjalankan Patroni.
+                </p>
+
+                <div class="info-box note">
+                    <span class="icon">NOTE</span>
+                    <p class="text"><strong>listen-client-urls</strong> wajib di-bind ke <code>0.0.0.0</code> supaya semua node bisa reach. Tapi <strong>advertise-client-urls</strong> harus pakai IP spesifik, bukan wildcard.</p>
+                </div>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="code-header-left">
+                            <div class="code-dots"><span></span><span></span><span></span></div>
+                            <span class="code-filename">etcd.service — ExecStart flags</span>
+                        </div>
+                        <span class="code-lang">shell</span>
+                    </div>
+                    <div class="code-body">
+                        <div class="line-nums">
+                            <span>1</span><span>2</span><span>3</span><span>4</span>
+                            <span>5</span><span>6</span><span>7</span>
+                        </div>
+                        <div class="code-content"><span class="cm"># Bind ke semua interface agar bisa di-reach dari node lain</span>
+<span class="kw">--listen-client-urls</span> <span class="st">http://0.0.0.0:2379</span>
+
+<span class="cm"># Advertise IP statis node etcd ke cluster</span>
+<span class="kw">--advertise-client-urls</span> <span class="st">http://192.168.1.15:2379</span>
+
+<span class="cm"># Verifikasi endpoint berjalan</span>
+<span class="nm">etcdctl</span> <span class="op">--endpoints</span>=http://192.168.1.15:2379 endpoint health</div>
+                    </div>
+                </div>
+
+                <div class="info-box warn">
+                    <span class="icon">WARN</span>
+                    <p class="text">Jika <strong>firewalld</strong> aktif, buka port <code>2379</code> dan <code>2380</code> sebelum melanjutkan. Cluster tidak akan terbentuk jika port tersebut diblokir.</p>
+                </div>
+            </section>
+
+
+            <!-- ── SECTION 02: PATRONI ── -->
+            <section class="doc-section" id="patroni">
+                <div class="section-header">
+                    <span class="section-num">02</span>
+                    <div>
+                        <h2 class="section-title">Konfigurasi Patroni <span class="dim">/ Node Manager</span></h2>
+                    </div>
+                </div>
+
+                <p class="section-body">
+                    Patroni dijalankan di atas setiap node Rocky Linux untuk memonitor proses Postgres secara lokal.
+                    Terdapat dua node — <strong>pg-node-1</strong> sebagai leader (<code>192.168.1.13</code>) dan
+                    <strong>pg-node-2</strong> sebagai replica (<code>192.168.1.14</code>). Keduanya mengarah ke
+                    Etcd di <code>192.168.1.15:2379</code>.
+                </p>
+
+                <p class="section-body" style="margin-top:-12px;">
+                    Field yang <strong>berbeda antar node</strong>: <code>name</code>, <code>restapi.connect_address</code>,
+                    dan <code>postgresql.connect_address</code>. Sisanya identik.
+                </p>
+
+                <!-- pg-node-1 -->
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="code-header-left">
+                            <div class="code-dots"><span></span><span></span><span></span></div>
+                            <span class="code-filename">/etc/patroni.yml — pg-node-1 (leader · 192.168.1.13)</span>
+                        </div>
+                        <span class="code-lang">yaml</span>
+                    </div>
+                    <div class="code-body">
+                        <div class="line-nums">
+                            <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+                            <span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
+                            <span>11</span><span>12</span><span>13</span><span>14</span><span>15</span>
+                            <span>16</span><span>17</span><span>18</span><span>19</span><span>20</span>
+                            <span>21</span><span>22</span><span>23</span><span>24</span><span>25</span>
+                            <span>26</span><span>27</span><span>28</span><span>29</span><span>30</span>
+                            <span>31</span><span>32</span><span>33</span><span>34</span><span>35</span>
+                            <span>36</span><span>37</span><span>38</span><span>39</span><span>40</span>
+                        </div>
+                        <div class="code-content"><span class="kw">scope</span><span class="pu">:</span> <span class="st">postgres-ha</span>
+<span class="kw">name</span><span class="pu">:</span> <span class="st">pg-node-1</span>
+<span class="kw">etcd3</span><span class="pu">:</span>
+  <span class="kw">hosts</span><span class="pu">:</span> <span class="nm">192.168.1.15:2379</span>
+
+<span class="kw">restapi</span><span class="pu">:</span>
+  <span class="kw">listen</span><span class="pu">:</span> <span class="nm">0.0.0.0:8008</span>
+  <span class="kw">connect_address</span><span class="pu">:</span> <span class="nm">192.168.1.13:8008</span>
+
+<span class="kw">postgresql</span><span class="pu">:</span>
+  <span class="kw">listen</span><span class="pu">:</span> <span class="nm">0.0.0.0:5432</span>
+  <span class="kw">connect_address</span><span class="pu">:</span> <span class="nm">192.168.1.13:5432</span>
+  <span class="kw">data_dir</span><span class="pu">:</span> <span class="st">/var/lib/pgsql/14/data</span>
+  <span class="kw">bin_dir</span><span class="pu">:</span> <span class="st">/usr/pgsql-14/bin</span>
+  <span class="kw">pgpass</span><span class="pu">:</span> <span class="st">/tmp/pgpass0</span>
+  <span class="kw">pg_hba</span><span class="pu">:</span>
+    <span class="pu">-</span> <span class="st">host replication replicator 192.168.1.0/24 md5</span>
+    <span class="pu">-</span> <span class="st">host all all 0.0.0.0/0 md5</span>
+  <span class="kw">authentication</span><span class="pu">:</span>
+    <span class="kw">replication</span><span class="pu">:</span>
+      <span class="kw">username</span><span class="pu">:</span> <span class="st">replicator</span>
+      <span class="kw">password</span><span class="pu">:</span> <span class="st">repl_password</span>
+    <span class="kw">superuser</span><span class="pu">:</span>
+      <span class="kw">username</span><span class="pu">:</span> <span class="st">postgres</span>
+      <span class="kw">password</span><span class="pu">:</span> <span class="st">super_password</span>
+
+<span class="kw">bootstrap</span><span class="pu">:</span>
+  <span class="kw">dcs</span><span class="pu">:</span>
+    <span class="kw">ttl</span><span class="pu">:</span> <span class="nm">30</span>
+    <span class="kw">loop_wait</span><span class="pu">:</span> <span class="nm">10</span>
+    <span class="kw">retry_timeout</span><span class="pu">:</span> <span class="nm">10</span>
+    <span class="kw">maximum_lag_on_failover</span><span class="pu">:</span> <span class="nm">1048576</span>
+    <span class="kw">postgresql</span><span class="pu">:</span>
+      <span class="kw">use_pg_rewind</span><span class="pu">:</span> <span class="st">true</span>
+      <span class="kw">parameters</span><span class="pu">:</span>
+        <span class="kw">wal_level</span><span class="pu">:</span> <span class="st">logical</span>
+  <span class="kw">initdb</span><span class="pu">:</span>
+  <span class="pu">-</span> <span class="st">auth-host: md5</span>
+  <span class="pu">-</span> <span class="st">auth-local: trust</span>
+  <span class="pu">-</span> <span class="st">encoding: UTF8</span>
+  <span class="pu">-</span> <span class="st">locale: en_US.UTF-8</span>
+  <span class="pu">-</span> <span class="st">data-checksums</span></div>
+                    </div>
+                </div>
+
+                <div style="height:20px;"></div>
+
+                <!-- pg-node-2 -->
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="code-header-left">
+                            <div class="code-dots"><span></span><span></span><span></span></div>
+                            <span class="code-filename">/etc/patroni.yml — pg-node-2 (replica · 192.168.1.14)</span>
+                        </div>
+                        <span class="code-lang">yaml</span>
+                    </div>
+                    <div class="code-body">
+                        <div class="line-nums">
+                            <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+                            <span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
+                            <span>11</span><span>12</span><span>13</span><span>14</span><span>15</span>
+                            <span>16</span><span>17</span><span>18</span><span>19</span><span>20</span>
+                            <span>21</span><span>22</span><span>23</span><span>24</span>
+                        </div>
+                        <div class="code-content"><span class="kw">scope</span><span class="pu">:</span> <span class="st">postgres-ha</span>
+<span class="kw">name</span><span class="pu">:</span> <span class="st">pg-node-2</span>
+<span class="kw">etcd3</span><span class="pu">:</span>
+  <span class="kw">hosts</span><span class="pu">:</span> <span class="nm">192.168.1.15:2379</span>
+
+<span class="kw">restapi</span><span class="pu">:</span>
+  <span class="kw">listen</span><span class="pu">:</span> <span class="nm">0.0.0.0:8008</span>
+  <span class="kw">connect_address</span><span class="pu">:</span> <span class="nm">192.168.1.14:8008</span>
+
+<span class="kw">postgresql</span><span class="pu">:</span>
+  <span class="kw">listen</span><span class="pu">:</span> <span class="nm">0.0.0.0:5432</span>
+  <span class="kw">connect_address</span><span class="pu">:</span> <span class="nm">192.168.1.14:5432</span>
+  <span class="kw">data_dir</span><span class="pu">:</span> <span class="st">/var/lib/pgsql/14/data</span>
+  <span class="kw">bin_dir</span><span class="pu">:</span> <span class="st">/usr/pgsql-14/bin</span>
+  <span class="kw">pgpass</span><span class="pu">:</span> <span class="st">/tmp/pgpass0</span>
+  <span class="kw">pg_hba</span><span class="pu">:</span>
+    <span class="pu">-</span> <span class="st">host replication replicator 127.0.0.1/32 md5</span>
+    <span class="pu">-</span> <span class="st">host replication replicator 192.168.1.0/24 md5</span>
+    <span class="pu">-</span> <span class="st">host all all 0.0.0.0/0 md5</span>
+    <span class="pu">-</span> <span class="st">local all all trust</span>
+  <span class="kw">authentication</span><span class="pu">:</span>
+    <span class="kw">replication</span><span class="pu">:</span>
+      <span class="kw">username</span><span class="pu">:</span> <span class="st">replicator</span>
+      <span class="kw">password</span><span class="pu">:</span> <span class="st">repl_password</span>
+    <span class="kw">superuser</span><span class="pu">:</span>
+      <span class="kw">username</span><span class="pu">:</span> <span class="st">postgres</span>
+      <span class="kw">password</span><span class="pu">:</span> <span class="st">super_password</span></div>
+                    </div>
+                </div>
+
+                <div class="info-box note" style="margin-top:20px;">
+                    <span class="icon">NOTE</span>
+                    <p class="text">pg-node-2 menambahkan <code>127.0.0.1/32</code> dan <code>local all all trust</code> di <strong>pg_hba</strong>. Password <code>repl_password</code> dan <code>super_password</code> harus <strong>identik</strong> di kedua node.</p>
+                </div>
+
+                <div class="info-box tip" style="margin-top:12px;">
+                    <span class="icon">TIP</span>
+                    <p class="text">Gunakan <code>patronictl -c /etc/patroni.yml list</code> untuk melihat status semua member cluster secara real-time.</p>
+                </div>
+            </section>
+
+
+            <!-- ── SECTION 03: FAILOVER ── -->
+            <section class="doc-section" id="failover">
+                <div class="section-header">
+                    <span class="section-num">03</span>
+                    <div>
+                        <h2 class="section-title">Failover Logic <span class="dim">/ Auto-Election</span></h2>
+                    </div>
+                </div>
+
+                <p class="section-body">
+                    Ketika primary node tidak responsif selama <strong>ttl (default 30s)</strong>, Patroni akan
+                    memulai proses <strong>leader election</strong> via Etcd. Replica dengan WAL position
+                    paling terkini akan dipromosikan menjadi primary baru.
+                </p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <div class="code-header-left">
+                            <div class="code-dots"><span></span><span></span><span></span></div>
+                            <span class="code-filename">patroni.yml — bootstrap.dcs (dari pg-node-1)</span>
+                        </div>
+                        <span class="code-lang">yaml</span>
+                    </div>
+                    <div class="code-body">
+                        <div class="line-nums">
+                            <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+                            <span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
+                            <span>11</span><span>12</span><span>13</span><span>14</span><span>15</span>
+                            <span>16</span>
+                        </div>
+                        <div class="code-content"><span class="kw">bootstrap</span><span class="pu">:</span>
+  <span class="kw">dcs</span><span class="pu">:</span>
+    <span class="kw">ttl</span><span class="pu">:</span> <span class="nm">30</span>           <span class="cm"># detik sebelum leader dianggap mati</span>
+    <span class="kw">loop_wait</span><span class="pu">:</span> <span class="nm">10</span>      <span class="cm"># interval health check</span>
+    <span class="kw">retry_timeout</span><span class="pu">:</span> <span class="nm">10</span>
+    <span class="kw">maximum_lag_on_failover</span><span class="pu">:</span> <span class="nm">1048576</span>  <span class="cm"># 1MB max WAL lag</span>
+    <span class="kw">postgresql</span><span class="pu">:</span>
+      <span class="kw">use_pg_rewind</span><span class="pu">:</span> <span class="st">true</span>
+      <span class="kw">parameters</span><span class="pu">:</span>
+        <span class="kw">wal_level</span><span class="pu">:</span> <span class="st">logical</span>
+  <span class="kw">initdb</span><span class="pu">:</span>
+  <span class="pu">-</span> <span class="st">auth-host: md5</span>
+  <span class="pu">-</span> <span class="st">auth-local: trust</span>
+  <span class="pu">-</span> <span class="st">encoding: UTF8</span>
+  <span class="pu">-</span> <span class="st">locale: en_US.UTF-8</span>
+  <span class="pu">-</span> <span class="st">data-checksums</span></div>
+                    </div>
+                </div>
+
+                <div class="info-box note" style="margin-top:20px;">
+                    <span class="icon">NOTE</span>
+                    <p class="text"><code>bootstrap.dcs</code> hanya dibaca saat <strong>cluster pertama kali dibuat</strong>. Setelah itu konfigurasi DCS disimpan di Etcd dan perubahan harus dilakukan via <code>patronictl edit-config</code>.</p>
+                </div>
+
+                <div class="info-box warn" style="margin-top:12px;">
+                    <span class="icon">WARN</span>
+                    <p class="text"><code>maximum_lag_on_failover: 1048576</code> berarti replica dengan WAL lag lebih dari <strong>1MB</strong> tidak akan dipromosikan. Sesuaikan nilainya dengan toleransi data loss kamu.</p>
+                </div>
+            </section>
+
+
+            <!-- ── TOPOLOGY ── -->
+            <section class="doc-section" id="topology">
+                <div class="section-header">
+                    <span class="section-num">─</span>
+                    <div>
+                        <h2 class="section-title">Cluster Topology <span class="dim">/ Network Map</span></h2>
+                    </div>
+                </div>
+
+                <div class="topology">
+                    <div class="topo-grid">
+                        <div class="topo-node primary">
+                            <div class="topo-name">pg-node-1</div>
+                            <div class="topo-ip">192.168.1.13</div>
+                            <span class="topo-role primary-role">leader</span>
+                        </div>
+                        <div class="topo-arrow">→</div>
+                        <div class="topo-node etcd">
+                            <div class="topo-name">etcd-01</div>
+                            <div class="topo-ip">192.168.1.15</div>
+                            <span class="topo-role etcd-role">consensus</span>
+                        </div>
+                        <div class="topo-arrow">←</div>
+                        <div class="topo-node">
+                            <div class="topo-name">pg-node-2</div>
+                            <div class="topo-ip">192.168.1.14</div>
+                            <span class="topo-role replica-role">replica</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+
+            <!-- ── DEBUG TRACE ── -->
+            <section class="doc-section" id="debug">
+                <div class="section-header">
+                    <span class="section-num">─</span>
+                    <div>
+                        <h2 class="section-title">Debug Trace <span class="dim">/ Etcd Payload</span></h2>
+                    </div>
+                </div>
+
+                <p class="section-body">
+                    Raw JSON payload yang diterima dari Etcd cluster. Data ini di-render via Go template
+                    dan digunakan untuk men-populate status di atas.
+                </p>
+
+                <div class="terminal-block">
+                    <div class="terminal-header">
+                        <div class="code-dots"><span></span><span></span><span></span></div>
+                        <span class="terminal-title">etcd-payload — last response</span>
+                    </div>
+                    <div class="terminal-body">
+<span class="prompt">$</span> <span class="cmd">curl http://192.168.1.15:2379/v3/kv/range | jq .</span>
+<br>
+<span class="out">{</span>
+  <span class="key">"leader"</span><span class="out">:</span>  <span class="val">"<span class="tmpl">{{ .leader_name }}</span>"</span><span class="out">,</span>
+  <span class="key">"primary"</span><span class="out">:</span> <span class="val">"<span class="tmpl">{{ .primary }}</span>"</span><span class="out">,</span>
+  <span class="key">"members"</span><span class="out">:</span> <span class="val">[...]</span>
+<span class="out">}</span>
+<br>
+<span class="out">── raw template output ──────────────</span>
+<span class="tmpl">{{ .raw_json }}</span>
+<br>
+<span class="prompt">$</span> <span class="cursor"></span>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+
+    <!-- ══ FOOTER ════════════════════════════════════ -->
+    <footer class="site-footer">
+        <div class="footer-left">
+            wafi-ha-docs &nbsp;·&nbsp; <span>go + fiber</span> &nbsp;·&nbsp; 2026
+        </div>
+        <div class="footer-ascii">
+            ── Wafi Dev Environment ──────────────────
+        </div>
+    </footer>
+
+    <script>
+        // Highlight active sidebar link on scroll
+        const sections = document.querySelectorAll('section[id]');
+        const links    = document.querySelectorAll('.sidebar-links a');
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    links.forEach(l => l.classList.remove('active'));
+                    const active = document.querySelector(`.sidebar-links a[href="#${entry.target.id}"]`);
+                    if (active) active.classList.add('active');
+                }
+            });
+        }, { rootMargin: '-30% 0px -60% 0px' });
+
+        sections.forEach(s => observer.observe(s));
+    </script>
+
+</body>
+</html>
